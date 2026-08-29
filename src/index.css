@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-white text-ink font-sans antialiased;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection {
+    @apply bg-sage text-white;
+  }
+  a {
+    color: inherit;
+  }
+}
+
+@layer utilities {
+  .balance {
+    text-wrap: balance;
+  }
+}
+
+.hero-fade {
+  opacity: 1;
+  animation: heroFade 600ms ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-fade {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}
