@@ -1,7 +1,8 @@
-name: deploy quilwood wellness 28.
-on: 
+name: deploy quilwood wellness
+
+on:
   push:
-    branches: 
+    branches:
       - main
 
 jobs:
@@ -9,13 +10,129 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: ssh connection
+      - name: ssh connection and deploy
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_KEY }} 
+          key: ${{ secrets.SSH_KEY }}
           port: 22
           script: |
-            sudo apt update
+            set -euo pipefail
 
+            # ---------- Config ----------
+            DOMAIN="quilwood.theextraschool.com"
+            APP_DIR="/var/www/quilwood-wellness"
+            REPO_URL="https://github.com/arifucoder/quilwood-wellness.git"
+            BRANCH="main"
+            NGINX_AVAILABLE="/etc/nginx/sites-available/${DOMAIN}"
+            NGINX_ENABLED="/etc/nginx/sites-enabled/${DOMAIN}"
+            SSL_SNIPPET="/etc/nginx/snippets/cloudflare-ssl-theextraschool.conf"
+
+            echo "==> [1/6] Checking system dependencies"
+
+            # --- Node.js (install only if missing) ---
+            if ! command -v node >/dev/null 2>&1; then
+              echo "Node.js not found, installing Node 20 LTS..."
+              curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+              sudo apt-get install -y nodejs
+            else
+              echo "Node.js already installed: $(node -v)"
+            fi
+
+            # --- pnpm (install only if missing) ---
+            if ! command -v pnpm >/dev/null 2>&1; then
+              echo "pnpm not found, installing..."
+              sudo npm install -g pnpm
+            else
+              echo "pnpm already installed: $(pnpm -v)"
+            fi
+
+            # --- nginx (install only if missing) ---
+            if ! command -v nginx >/dev/null 2>&1; then
+              echo "nginx not found, installing..."
+              sudo apt-get update
+              sudo apt-get install -y nginx
+            else
+              echo "nginx already installed"
+            fi
+
+            echo "==> [2/6] Syncing repository"
+
+            if [ -d "${APP_DIR}/.git" ]; then
+              echo "Repo exists, pulling latest changes..."
+              cd "${APP_DIR}"
+              git fetch origin "${BRANCH}"
+              git reset --hard "origin/${BRANCH}"
+            else
+              echo "Repo not found, cloning fresh..."
+              sudo mkdir -p "${APP_DIR}"
+              sudo chown "$(whoami)":"$(whoami)" "${APP_DIR}"
+              git clone --branch "${BRANCH}" "${REPO_URL}" "${APP_DIR}"
+              cd "${APP_DIR}"
+            fi
+
+            echo "==> [3/6] Installing dependencies and building"
+
+            cd "${APP_DIR}"
+            pnpm install --frozen-lockfile
+            pnpm run build
+
+            echo "==> [4/6] Preparing nginx config (only touched if changed)"
+
+            DESIRED_CONF="/tmp/${DOMAIN}.conf"
+            cat > "${DESIRED_CONF}" <<EOF
+            server {
+                listen 80;
+                server_name ${DOMAIN};
+                return 301 https://\$host\$request_uri;
+            }
+
+            server {
+                listen 443 ssl;
+                http2 on;
+                server_name ${DOMAIN};
+
+                include ${SSL_SNIPPET};
+
+                root ${APP_DIR}/dist;
+                index index.html;
+
+                location / {
+                    try_files \$uri \$uri/ /index.html;
+                }
+
+                access_log /var/log/nginx/${DOMAIN}.access.log;
+                error_log  /var/log/nginx/${DOMAIN}.error.log;
+            }
+            EOF
+
+            CONFIG_CHANGED=false
+
+            if ! sudo diff -q "${DESIRED_CONF}" "${NGINX_AVAILABLE}" >/dev/null 2>&1; then
+              echo "Nginx config changed (or first run), updating..."
+              sudo cp "${DESIRED_CONF}" "${NGINX_AVAILABLE}"
+              CONFIG_CHANGED=true
+            else
+              echo "Nginx config unchanged, skipping."
+            fi
+
+            if [ ! -L "${NGINX_ENABLED}" ]; then
+              echo "Enabling site (first run)..."
+              sudo ln -s "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
+              CONFIG_CHANGED=true
+            fi
+
+            echo "==> [5/6] Fixing permissions"
+            sudo chown -R www-data:www-data "${APP_DIR}/dist"
+
+            echo "==> [6/6] Testing and reloading nginx (only if needed)"
+            if [ "${CONFIG_CHANGED}" = true ]; then
+              sudo nginx -t
+              sudo systemctl reload nginx
+              echo "Nginx config applied and reloaded."
+            else
+              echo "No nginx config change — reload skipped. New build is already live (static files)."
+            fi
+
+            echo "==> Deployment finished: https://${DOMAIN}"
