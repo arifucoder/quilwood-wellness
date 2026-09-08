@@ -18,7 +18,7 @@ export default function Hero() {
 			<div className="relative mx-auto max-w-[1100px] px-6 text-center sm:px-10">
 				<div className="mb-9 inline-flex items-center gap-2.5 rounded-full border border-sage-deep/20 bg-white/85 px-5 py-2.5 text-sm font-semibold text-sage-deep shadow-[0_4px_14px_rgba(45,106,79,0.08)] backdrop-blur">
 					<span className="inline-block h-2 w-2 rounded-full bg-coral shadow-[0_0_0_3px_rgba(224,112,87,0.18)]" />
-					For stress · anxiety · burnout · recovery
+					For stress · anxiety · burnout · recovery . happy
 				</div>
 
 				<h1 className="hero-fade balance font-serif text-5xl font-bold leading-[1.04] tracking-tight text-ink sm:text-7xl lg:text-[88px]">
